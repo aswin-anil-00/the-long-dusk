@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>The Long Dusk — Countdown</title>
+
+  <!-- Google Fonts: Cormorant Garamond (light display serif) & Inter (clean UI sans) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ==========================================================================
+       1. DESIGN SYSTEM & TOKENS (8px spacing scale, OLED-friendly palette)
+       ========================================================================== */
+    :root {
+      /* Base & Surface */
+      --bg-oled: #07080d;
+      --text-primary: #f4f2ed;       /* Contrast > 14:1 on dark base */
+      --text-secondary: #c2bfd6;     /* Contrast > 8.5:1 */
+      --text-muted: #8e8ba6;         /* Contrast > 4.8:1 */
+
+      /* Accents (dynamically refined via JS as dusk deepens) */
+      --accent-amber: #f0a85c;
+      --accent-amber-glow: rgba(240, 168, 92, 0.28);
+      --tone-lavender: #b8b5d8;
+      --hairline: rgba(224, 220, 240, 0.14);
+      --hairline-strong: rgba(240, 168, 92, 0.45);
+
+      /* Dynamic Sky Stops (interpolated smoothly by JS from elapsed %) */
+      --sky-top: #101526;
+      --sky-mid: #28243d;
+      --sky-horizon: #6e4e4a;
+      --sun-core: #ffe9cf;
+      --sun-halo: rgba(255, 206, 150, 0.32);
+
+      /* Typography */
+      --font-display: 'Cormorant Garamond', 'Didot', 'Bodoni MT', 'Playfair Display', Georgia, serif;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+      /* 8px Spacing Scale */
+      --space-1: 8px;
+      --space-2: 16px;
+      --space-3: 24px;
+      --space-4: 32px;
+      --space-5: 40px;
+      --space-6: 48px;
+      --space-8: 64px;
+    }
+
+    /* ==========================================================================
+       2. RESET & FULL-VIEWPORT LOCK (Zero scrolling ever)
+       ========================================================================== */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      background-color: var(--bg-oled);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      user-select: none;
+    }
+
+    /* ==========================================================================
+       3. ATMOSPHERIC SKY & CELESTIAL LAYER ("The Long Dusk")
+       ========================================================================== */
+    .wallpaper-stage {
+      position: relative;
+      width: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      background:
+        radial-gradient(
+          135% 75% at 50% var(--horizon-y, 68%),
+          var(--sky-horizon) 0%,
+          var(--sky-mid) 38%,
+          var(--sky-top) 74%,
+          var(--bg-oled) 100%
+        );
+      transition: background 1.2s ease;
+    }
+
+    /* Subtle dark ground plane below the horizon line for OLED depth */
+    .ground-veil {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      top: var(--horizon-y, 68%);
+      background: linear-gradient(
+        to bottom,
+        rgba(7, 8, 13, 0.52) 0%,
+        rgba(7, 8, 13, 0.88) 32%,
+        #05060a 100%
+      );
+      border-top: 1px solid rgba(235, 224, 214, 0.16);
+      backdrop-filter: blur(2px);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* Soft atmospheric drift layer */
+    .ambient-drift {
+      position: absolute;
+      inset: -6%;
+      background:
+        radial-gradient(circle at 30% 35%, rgba(184, 181, 216, 0.06), transparent 55%),
+        radial-gradient(circle at 72% 48%, var(--accent-amber-glow), transparent 60%);
+      pointer-events: none;
+      z-index: 1;
+      animation: slowDrift 42s ease-in-out infinite alternate;
+    }
+
+    @keyframes slowDrift {
+      0% { transform: translate3d(-1.5%, -1%, 0) scale(1); }
+      100% { transform: translate3d(1.5%, 1.2%, 0) scale(1.03); }
+    }
+
+    /* SVG Celestial Canvas (Arc, Sun, Horizon Glow, Post-Deadline Stars) */
+    .sky-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .stars-layer {
+      opacity: 0;
+      transition: opacity 2.5s ease;
+    }
+
+    .wallpaper-stage.is-complete .stars-layer {
+      opacity: 1;
+    }
+
+    .star-twinkle {
+      animation: starBreathe 7s ease-in-out infinite alternate;
+    }
+
+    @keyframes starBreathe {
+      0% { opacity: 0.25; }
+      100% { opacity: 0.85; }
+    }
+
+    /* Subtle analog film grain overlay */
+    .grain-overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0.038;
+      mix-blend-mode: overlay;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* ==========================================================================
+       4. RESPONSIVE SAFE-ZONE LAYOUT (Portrait Lock Screen & Landscape Desktop)
+       ========================================================================== */
+    .safe-shell {
+      position: relative;
+      z-index: 5;
+      width: 100%;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .content-band {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: clamp(var(--space-2), 2.4dvh, var(--space-4));
+    }
+
+    /* PHONE PORTRAIT SAFE ZONES (Designed at 1170x2532, adapts down to 320px):
+       - Top 28% strictly empty for system clock & lock screen widgets
+       - Bottom 12% strictly empty for flashlight & camera buttons
+       - 6% horizontal side margins */
+    @media (orientation: portrait) {
+      :root {
+        --horizon-y: 66%;
+      }
+
+      .safe-shell {
+        padding-top: max(28dvh, calc(env(safe-area-inset-top, 0px) + 25dvh));
+        padding-bottom: max(12dvh, calc(env(safe-area-inset-bottom, 0px) + 10dvh));
+        padding-left: max(6vw, env(safe-area-inset-left, 0px));
+        padding-right: max(6vw, env(safe-area-inset-right, 0px));
+        justify-content: space-between;
+      }
+
+      .content-band {
+        max-width: 540px;
+        height: 100%;
+        justify-content: space-evenly;
+      }
+    }
+
+    /* DESKTOP LANDSCAPE (16:9 and wide monitors up to 2560px+):
+       - Content centered in the middle 60% width, leaving generous left/right margins for desktop icons */
+    @media (orientation: landscape) {
+      :root {
+        --horizon-y: 72%;
+      }
+
+      .safe-shell {
+        padding-top: max(var(--space-6), env(safe-area-inset-top, 0px));
+        padding-bottom: max(var(--space-6), env(safe-area-inset-bottom, 0px));
+        padding-left: 20vw;
+        padding-right: 20vw;
+      }
+
+      .content-band {
+        width: 100%;
+        max-width: 820px;
+        gap: clamp(var(--space-3), 3.2dvh, var(--space-5));
+      }
+    }
+
+    /* ==========================================================================
+       5. TYPOGRAPHY & MAIN COUNTDOWN BLOCK
+       ========================================================================== */
+    .event-header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-1);
+    }
+
+    .event-eyebrow {
+      font-size: clamp(0.6875rem, 1.1vw, 0.8125rem);
+      font-weight: 400;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--tone-lavender);
+    }
+
+    .event-title {
+      font-family: var(--font-display);
+      font-weight: 300;
+      font-size: clamp(1.35rem, 2.6vw, 2rem);
+      letter-spacing: 0.04em;
+      color: var(--text-primary);
+      line-height: 1.15;
+    }
+
+    /* Countdown Display */
+    .countdown-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-2);
+      width: 100%;
+    }
+
+    .countdown-grid {
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: clamp(12px, 3vw, 36px);
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1, "lnum" 1;
+    }
+
+    .time-unit {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: clamp(54px, 9vw, 108px);
+    }
+
+    .time-value {
+      font-family: var(--font-display);
+      font-weight: 300;
+      font-size: clamp(2.85rem, 8.2vw, 6.25rem);
+      line-height: 0.94;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+      text-shadow: 0 4px 28px rgba(7, 8, 13, 0.55);
+    }
+
+    .time-label {
+      margin-top: var(--space-1);
+      font-size: clamp(0.65rem, 0.95vw, 0.75rem);
+      font-weight: 400;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+
+    .time-sep {
+      font-family: var(--font-display);
+      font-weight: 300;
+      font-size: clamp(1.75rem, 4.5vw, 3.5rem);
+      line-height: 1;
+      color: var(--text-muted);
+      transform: translateY(-0.22em);
+    }
+
+    /* Subtle seconds indicator tucked quietly beneath or beside */
+    .seconds-readout {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 6px;
+      font-variant-numeric: tabular-nums;
+      font-size: clamp(0.75rem, 1.05vw, 0.875rem);
+      letter-spacing: 0.14em;
+      color: var(--text-muted);
+    }
+
+    .seconds-readout span.sec-num {
+      font-family: var(--font-display);
+      font-size: clamp(0.95rem, 1.3vw, 1.15rem);
+      color: var(--text-secondary);
+      min-width: 1.6em;
+      text-align: right;
+    }
+
+    /* Poetic Phase Line ("Plenty of daylight" -> "Last light") */
+    .phase-line {
+      font-family: var(--font-display);
+      font-style: italic;
+      font-weight: 300;
+      font-size: clamp(1.1rem, 1.9vw, 1.45rem);
+      letter-spacing: 0.03em;
+      color: var(--accent-amber);
+      transition: color 1.2s ease;
+    }
+
+    /* Completed State Message */
+    .completed-message {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-2);
+      padding: var(--space-2) 0;
+    }
+
+    .wallpaper-stage.is-complete .countdown-grid,
+    .wallpaper-stage.is-complete .seconds-readout {
+      display: none;
+    }
+
+    .wallpaper-stage.is-complete .completed-message {
+      display: flex;
+    }
+
+    .completed-title {
+      font-family: var(--font-display);
+      font-weight: 300;
+      font-size: clamp(2.4rem, 6vw, 4.75rem);
+      line-height: 1.05;
+      color: var(--text-primary);
+    }
+
+    .completed-sub {
+      font-size: clamp(0.8125rem, 1.2vw, 0.9375rem);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--tone-lavender);
+    }
+
+    /* ==========================================================================
+       6. THIN PROGRESS HORIZON LINE (% ELAPSED)
+       ========================================================================== */
+    .progress-section {
+      width: 100%;
+      max-width: 560px;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+    }
+
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: clamp(0.6875rem, 0.95vw, 0.75rem);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress-track {
+      position: relative;
+      width: 100%;
+      height: 1px;
+      background-color: var(--hairline);
+    }
+
+    .progress-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      height: 1px;
+      width: 0%;
+      background: linear-gradient(90deg, var(--tone-lavender), var(--accent-amber));
+      transition: width 1s linear;
+    }
+
+    .progress-pip {
+      position: absolute;
+      top: 50%;
+      left: 0%;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background-color: var(--accent-amber);
+      box-shadow: 0 0 10px var(--accent-amber);
+      transform: translate(-50%, -50%);
+      transition: left 1s linear;
+    }
+
+    /* ==========================================================================
+       7. AIRY MILESTONE TRACKER (No boxes, thin hairlines, next 3 + dot trail)
+       ========================================================================== */
+    .milestones-section {
+      width: 100%;
+      max-width: 560px;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+
+    /* Compact dot summary of ALL milestones */
+    .milestone-dots-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-2);
+    }
+
+    .m-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: rgba(194, 191, 214, 0.22);
+      transition: transform 0.4s ease, background-color 0.4s ease, box-shadow 0.4s ease;
+    }
+
+    .m-dot.is-done {
+      background-color: rgba(184, 181, 216, 0.45);
+    }
+
+    .m-dot.is-next {
+      width: 7px;
+      height: 7px;
+      background-color: var(--accent-amber);
+      box-shadow: 0 0 8px var(--accent-amber);
+    }
+
+    /* Detailed list showing up to 3 active/upcoming milestones */
+    .milestone-list {
+      list-style: none;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .milestone-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-2);
+      padding: 10px 0;
+      border-bottom: 1px solid var(--hairline);
+      font-size: clamp(0.8125rem, 1.15vw, 0.9375rem);
+      line-height: 1.35;
+      transition: opacity 0.4s ease, color 0.4s ease;
+    }
+
+    .milestone-row:last-child {
+      border-bottom: none;
+    }
+
+    .milestone-left {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      min-width: 0;
+      text-align: left;
+    }
+
+    .milestone-marker {
+      flex-shrink: 0;
+      width: 12px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .milestone-title {
+      color: var(--text-secondary);
+      font-weight: 400;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .milestone-meta {
+      flex-shrink: 0;
+      font-size: clamp(0.75rem, 1vw, 0.8125rem);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+    }
+
+    /* Milestone States */
+    .milestone-row.is-next .milestone-marker {
+      color: var(--accent-amber);
+    }
+
+    .milestone-row.is-next .milestone-title {
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+
+    .milestone-row.is-next .milestone-meta {
+      color: var(--accent-amber);
+    }
+
+    .milestone-row.is-done {
+      opacity: 0.56;
+    }
+
+    .milestone-row.is-done .milestone-title {
+      text-decoration: line-through;
+      text-decoration-color: rgba(194, 191, 214, 0.35);
+    }
+
+    /* ==========================================================================
+       8. ACCESSIBILITY: REDUCED MOTION
+       ========================================================================== */
+    @media (prefers-reduced-motion: reduce) {
+      .ambient-drift,
+      .star-twinkle {
+        animation: none !important;
+      }
+      .wallpaper-stage,
+      .progress-fill,
+      .progress-pip,
+      .phase-line {
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="wallpaper-stage" id="stage" aria-label="Submission Day Countdown Wallpaper">
+    <!-- Ambient atmospheric gradient drift -->
+    <div class="ambient-drift" aria-hidden="true"></div>
+
+    <!-- Celestial SVG: Sun Arc, Sun Disc, Horizon Glow, and Post-Deadline Stars -->
+    <svg class="sky-svg" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <radialGradient id="sunHaloGrad" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#ffe7c7" stop-opacity="0.75" />
+          <stop offset="35%" stop-color="#f2a65a" stop-opacity="0.28" />
+          <stop offset="100%" stop-color="#f2a65a" stop-opacity="0" />
+        </radialGradient>
+        <linearGradient id="arcStrokeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#b8b5d8" stop-opacity="0.04" />
+          <stop offset="50%" stop-color="#f0a85c" stop-opacity="0.22" />
+          <stop offset="100%" stop-color="#b8b5d8" stop-opacity="0.04" />
+        </linearGradient>
+      </defs>
+
+      <!-- Subtle stars revealed gently once the sun has fully set -->
+      <g class="stars-layer" id="starsLayer" fill="#f4f2ed">
+        <circle class="star-twinkle" cx="140" cy="140" r="1.3" style="animation-delay: 0s;" />
+        <circle class="star-twinkle" cx="265" cy="95" r="1.1" style="animation-delay: 1.4s;" />
+        <circle class="star-twinkle" cx="385" cy="175" r="1.4" style="animation-delay: 2.8s;" />
+        <circle class="star-twinkle" cx="515" cy="88" r="1.1" style="animation-delay: 0.7s;" />
+        <circle class="star-twinkle" cx="640" cy="155" r="1.5" style="animation-delay: 3.5s;" />
+        <circle class="star-twinkle" cx="775" cy="110" r="1.2" style="animation-delay: 2.1s;" />
+        <circle class="star-twinkle" cx="865" cy="190" r="1.3" style="animation-delay: 4.2s;" />
+        <circle class="star-twinkle" cx="195" cy="245" r="1.0" style="animation-delay: 1.9s;" />
+        <circle class="star-twinkle" cx="810" cy="260" r="1.0" style="animation-delay: 3.1s;" />
+      </g>
+
+      <!-- Gentle celestial path -->
+      <path id="sunArcPath" d="" fill="none" stroke="url(#arcStrokeGrad)" stroke-width="1.2" stroke-dasharray="3 6" />
+
+      <!-- Sun halo & disc positioned dynamically along the arc -->
+      <g id="sunGroup">
+        <circle id="sunHalo" cx="500" cy="300" r="95" fill="url(#sunHaloGrad)" />
+        <circle id="sunDisc" cx="500" cy="300" r="11" fill="#fff0dc" />
+      </g>
+    </svg>
+
+    <!-- Horizon Ground Veil -->
+    <div class="ground-veil" aria-hidden="true"></div>
+
+    <!-- Safe-Zone Foreground Content -->
+    <div class="safe-shell">
+      <section class="content-band">
+        <!-- Event Title -->
+        <header class="event-header">
+          <p class="event-eyebrow" id="dateRangeLabel">Nov 17 — Nov 29</p>
+          <h1 class="event-title" id="eventTitle">Submission Day</h1>
+        </header>
+
+        <!-- Live Countdown + Phase Line -->
+        <div class="countdown-wrap" aria-live="polite">
+          <div class="countdown-grid" id="countdownGrid">
+            <div class="time-unit">
+              <span class="time-value" id="daysVal">00</span>
+              <span class="time-label">Days</span>
+            </div>
+            <span class="time-sep" aria-hidden="true">:</span>
+            <div class="time-unit">
+              <span class="time-value" id="hoursVal">00</span>
+              <span class="time-label">Hours</span>
+            </div>
+            <span class="time-sep" aria-hidden="true">:</span>
+            <div class="time-unit">
+              <span class="time-value" id="minutesVal">00</span>
+              <span class="time-label">Minutes</span>
+            </div>
+          </div>
+
+          <div class="seconds-readout" id="secondsReadout">
+            <span class="sec-num" id="secondsVal">00</span>
+            <span>sec</span>
+          </div>
+
+          <!-- Post-deadline calm state -->
+          <div class="completed-message" id="completedMessage">
+            <p class="completed-title">Submitted. Well done.</p>
+            <p class="completed-sub">The sun has set — rest well</p>
+          </div>
+
+          <!-- Dynamic phase line -->
+          <p class="phase-line" id="phaseLine">Plenty of daylight</p>
+        </div>
+
+        <!-- Thin Elapsed Progress Line -->
+        <div class="progress-section" aria-label="Elapsed time progress">
+          <div class="progress-meta">
+            <span>Dawn</span>
+            <span id="elapsedPctLabel">0% elapsed</span>
+            <span>Dusk</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="progressFill"></div>
+            <div class="progress-pip" id="progressPip"></div>
+          </div>
+        </div>
+
+        <!-- Airy Milestone Tracker -->
+        <div class="milestones-section" aria-label="Upcoming milestones">
+          <!-- Dot summary of all milestones -->
+          <div class="milestone-dots-bar" id="milestoneDots" aria-hidden="true"></div>
+          <!-- Detailed view of the next 3 milestones -->
+          <ul class="milestone-list" id="milestoneList"></ul>
+        </div>
+      </section>
+    </div>
+
+    <!-- Subtle SVG Fractal Noise Grain Overlay -->
+    <svg class="grain-overlay" aria-hidden="true">
+      <filter id="noiseFilter">
+        <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" stitchTiles="stitch" />
+      </filter>
+      <rect width="100%" height="100%" filter="url(#noiseFilter)" />
+    </svg>
+  </main>
+
+  <script>
+    /* ==========================================================================
+       CONFIG — Edit everything here in 30 seconds
+       All dates use ISO-8601 with explicit +05:30 offset (Asia/Kolkata)
+       ========================================================================== */
+    const CONFIG = {
+      eventName: "Submission Day",
+      timezoneOffset: "+05:30",
+      startDate: "2026-11-17T00:00:00+05:30",
+      deadline:  "2026-11-29T23:59:00+05:30",
+      milestones: [
+        { date: "2026-11-19", title: "Idea locked" },
+        { date: "2026-11-22", title: "First draft" },
+        { date: "2026-11-25", title: "Refine and test" },
+        { date: "2026-11-27", title: "Final polish" },
+        { date: "2026-11-29", title: "Submit" }
+      ],
+      // Set to null for live real-time clock, or an ISO string e.g. "2026-11-24T17:30:00+05:30" to preview any moment
+      previewNow: null
+    };
+
+    /* ==========================================================================
+       CORE LOGIC — "The Long Dusk" Sky Interpolation, Countdown & Milestones
+       ========================================================================== */
+    (function initLongDusk() {
+      // Cache DOM references
+      const stageEl = document.getElementById("stage");
+      const eventTitleEl = document.getElementById("eventTitle");
+      const dateRangeEl = document.getElementById("dateRangeLabel");
+      const daysEl = document.getElementById("daysVal");
+      const hoursEl = document.getElementById("hoursVal");
+      const minutesEl = document.getElementById("minutesVal");
+      const secondsEl = document.getElementById("secondsVal");
+      const phaseLineEl = document.getElementById("phaseLine");
+      const elapsedPctEl = document.getElementById("elapsedPctLabel");
+      const progressFillEl = document.getElementById("progressFill");
+      const progressPipEl = document.getElementById("progressPip");
+      const milestoneDotsEl = document.getElementById("milestoneDots");
+      const milestoneListEl = document.getElementById("milestoneList");
+      const sunArcPathEl = document.getElementById("sunArcPath");
+      const sunHaloEl = document.getElementById("sunHalo");
+      const sunDiscEl = document.getElementById("sunDisc");
+
+      // Parse configured timestamps
+      const startMs = new Date(CONFIG.startDate).getTime();
+      const endMs = new Date(CONFIG.deadline).getTime();
+      const totalDurationMs = Math.max(1, endMs - startMs);
+
+      // Parse milestones to end-of-day in the configured timezone so a milestone on Nov 19 stays active all day Nov 19
+      const parsedMilestones = CONFIG.milestones.map((m) => {
+        const targetMs = new Date(`${m.date}T23:59:59${CONFIG.timezoneOffset}`).getTime();
+        const displayDate = new Date(`${m.date}T12:00:00${CONFIG.timezoneOffset}`).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric"
+        });
+        return { ...m, targetMs, displayDate };
+      });
+
+      // Set static header labels from CONFIG
+      eventTitleEl.textContent = CONFIG.eventName;
+      const fmtShort = (ms) =>
+        new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      dateRangeEl.textContent = `${fmtShort(startMs)} — ${fmtShort(endMs)}`;
+
+      // Color interpolation helpers (RGB hex <-> array)
+      function hexToRgb(hex) {
+        const clean = hex.replace("#", "");
+        const num = parseInt(clean, 16);
+        return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+      }
+
+      function lerpColor(hexA, hexB, t) {
+        const a = hexToRgb(hexA);
+        const b = hexToRgb(hexB);
+        const r = Math.round(a[0] + (b[0] - a[0]) * t);
+        const g = Math.round(a[1] + (b[1] - a[1]) * t);
+        const bl = Math.round(a[2] + (b[2] - a[2]) * t);
+        return `rgb(${r}, ${g}, ${bl})`;
+      }
+
+      // Keyframes for sky color evolution across elapsed progress (0.0 = dawn -> 1.0 = deep twilight)
+      const SKY_STOPS = [
+        { p: 0.00, top: "#151c30", mid: "#3b334f", horizon: "#a87968", sun: "#fff2df", accent: "#e8b474" }, // Pale dawn / warm cream & soft peach
+        { p: 0.45, top: "#13182b", mid: "#332a47", horizon: "#8c584c", sun: "#ffd8a8", accent: "#f0a85c" }, // Golden afternoon
+        { p: 0.78, top: "#0d1021", mid: "#241c3b", horizon: "#59384a", sun: "#f59e56", accent: "#f7a44c" }, // Dusk is near
+        { p: 1.00, top: "#080912", mid: "#151326", horizon: "#261e38", sun: "#d97b43", accent: "#ffb45c" }  // Last light / deep indigo & muted violet
+      ];
+
+      function sampleSkyPalette(progress) {
+        const clamped = Math.min(1, Math.max(0, progress));
+        for (let i = 0; i < SKY_STOPS.length - 1; i++) {
+          const curr = SKY_STOPS[i];
+          const next = SKY_STOPS[i + 1];
+          if (clamped >= curr.p && clamped <= next.p) {
+            const localT = (clamped - curr.p) / (next.p - curr.p);
+            return {
+              top: lerpColor(curr.top, next.top, localT),
+              mid: lerpColor(curr.mid, next.mid, localT),
+              horizon: lerpColor(curr.horizon, next.horizon, localT),
+              sun: lerpColor(curr.sun, next.sun, localT),
+              accent: lerpColor(curr.accent, next.accent, localT)
+            };
+          }
+        }
+        return SKY_STOPS[SKY_STOPS.length - 1];
+      }
+
+      // Position the sun along a quadratic Bezier arc above the horizon
+      function updateCelestialArc(progress, isComplete) {
+        const isPortrait = window.innerHeight > window.innerWidth;
+        const horizonY = isPortrait ? 660 : 720; // Matches --horizon-y (66% vs 72%) in 1000x1000 SVG space
+        const startX = isPortrait ? 140 : 200;
+        const endX = isPortrait ? 860 : 800;
+        const peakY = isPortrait ? 210 : 180;
+
+        // Draw subtle dashed arc path
+        const ctrlX = 500;
+        const ctrlY = peakY - (horizonY - peakY) * 0.45;
+        sunArcPathEl.setAttribute("d", `M ${startX} ${horizonY} Q ${ctrlX} ${ctrlY} ${endX} ${horizonY}`);
+
+        // Compute sun position: starts high-left (~t=0.28) and sinks gently toward the right horizon (t=1.02)
+        const arcT = isComplete ? 1.05 : 0.25 + progress * 0.76;
+        const invT = 1 - arcT;
+        const sunX = invT * invT * startX + 2 * invT * arcT * ctrlX + arcT * arcT * endX;
+        const sunY = invT * invT * horizonY + 2 * invT * arcT * ctrlY + arcT * arcT * horizonY;
+
+        sunHaloEl.setAttribute("cx", sunX.toFixed(1));
+        sunHaloEl.setAttribute("cy", sunY.toFixed(1));
+        sunDiscEl.setAttribute("cx", sunX.toFixed(1));
+        sunDiscEl.setAttribute("cy", sunY.toFixed(1));
+
+        // Dim sun once below horizon
+        sunDiscEl.setAttribute("opacity", isComplete ? "0.18" : "0.95");
+        sunHaloEl.setAttribute("opacity", isComplete ? "0.2" : "1");
+      }
+
+      // Determine poetic phase line based on % elapsed
+      function getPhaseText(progress, isComplete) {
+        if (isComplete) return "Night has settled";
+        if (progress < 0.45) return "Plenty of daylight";
+        if (progress < 0.75) return "Golden hour";
+        if (progress < 0.92) return "Dusk is near";
+        return "Last light";
+      }
+
+      // Render milestone dots & up to 3 detailed active/upcoming milestones
+      function renderMilestones(nowMs) {
+        let nextIndex = parsedMilestones.findIndex((m) => m.targetMs >= nowMs);
+        const allDone = nextIndex === -1;
+
+        // 1. Render compact dot trail representing all milestones
+        milestoneDotsEl.innerHTML = parsedMilestones
+          .map((m, idx) => {
+            let cls = "m-dot";
+            if (allDone || idx < nextIndex) cls += " is-done";
+            else if (idx === nextIndex) cls += " is-next";
+            return `<span class="${cls}" title="${m.title}"></span>`;
+          })
+          .join("");
+
+        // 2. Select up to 3 milestones to display in detail (prioritizing next + upcoming; falls back to last 3 completed if all done)
+        let visibleSlice = [];
+        if (allDone) {
+          visibleSlice = parsedMilestones.slice(-3).map((m) => ({ ...m, state: "done" }));
+        } else {
+          visibleSlice = parsedMilestones.slice(nextIndex, nextIndex + 3).map((m, i) => ({
+            ...m,
+            state: i === 0 ? "next" : "upcoming"
+          }));
+        }
+
+        // 3. Build clean hairline list rows
+        milestoneListEl.innerHTML = visibleSlice
+          .map((m) => {
+            const diffDays = Math.ceil((m.targetMs - nowMs) / (1000 * 60 * 60 * 24));
+            let relativeLabel = m.displayDate;
+            let marker = "·";
+
+            if (m.state === "done") {
+              marker = "✓";
+              relativeLabel = "done";
+            } else if (m.state === "next") {
+              marker = "→";
+              if (diffDays <= 0) relativeLabel = "today";
+              else if (diffDays === 1) relativeLabel = "in 1 day";
+              else relativeLabel = `in ${diffDays} days`;
+            } else {
+              if (diffDays <= 1) relativeLabel = "tomorrow";
+              else relativeLabel = `in ${diffDays}d`;
+            }
+
+            return `
+              <li class="milestone-row is-${m.state}">
+                <div class="milestone-left">
+                  <span class="milestone-marker" aria-hidden="true">${marker}</span>
+                  <span class="milestone-title">${m.title}</span>
+                </div>
+                <span class="milestone-meta">${relativeLabel}</span>
+              </li>
+            `;
+          })
+          .join("");
+      }
+
+      // Pad integers to 2 digits
+      const pad2 = (n) => String(Math.max(0, Math.floor(n))).padStart(2, "0");
+
+      // Main 1-second tick
+      function tick() {
+        const nowMs = CONFIG.previewNow ? new Date(CONFIG.previewNow).getTime() : Date.now();
+        const remainingMs = endMs - nowMs;
+        const isComplete = remainingMs <= 0;
+
+        // Calculate elapsed ratio (0.0 to 1.0)
+        const rawProgress = (nowMs - startMs) / totalDurationMs;
+        const progress = Math.min(1, Math.max(0, rawProgress));
+        const pctDisplay = Math.round(progress * 100);
+
+        // Apply sky palette & celestial sun position
+        const palette = sampleSkyPalette(progress);
+        document.documentElement.style.setProperty("--sky-top", palette.top);
+        document.documentElement.style.setProperty("--sky-mid", palette.mid);
+        document.documentElement.style.setProperty("--sky-horizon", palette.horizon);
+        document.documentElement.style.setProperty("--accent-amber", palette.accent);
+        sunDiscEl.setAttribute("fill", palette.sun);
+        updateCelestialArc(progress, isComplete);
+
+        // Update progress bar
+        progressFillEl.style.width = `${(progress * 100).toFixed(2)}%`;
+        progressPipEl.style.left = `${(progress * 100).toFixed(2)}%`;
+        elapsedPctEl.textContent = `${pctDisplay}% elapsed`;
+
+        // Update phase line & state
+        phaseLineEl.textContent = getPhaseText(progress, isComplete);
+
+        if (isComplete) {
+          stageEl.classList.add("is-complete");
+        } else {
+          stageEl.classList.remove("is-complete");
+          const totalSec = Math.floor(remainingMs / 1000);
+          const days = Math.floor(totalSec / 86400);
+          const hours = Math.floor((totalSec % 86400) / 3600);
+          const minutes = Math.floor((totalSec % 3600) / 60);
+          const seconds = totalSec % 60;
+
+          daysEl.textContent = pad2(days);
+          hoursEl.textContent = pad2(hours);
+          minutesEl.textContent = pad2(minutes);
+          secondsEl.textContent = pad2(seconds);
+        }
+
+        renderMilestones(nowMs);
+      }
+
+      // Initial render + responsive arc recalculation + 1s interval
+      tick();
+      window.addEventListener("resize", tick, { passive: true });
+      setInterval(tick, 1000);
+    })();
+  </script>
+</body>
+</html>
